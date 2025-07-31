@@ -1,0 +1,60 @@
+{
+  "name": "cognesy/instructor-pipeline",
+  "description": "Pipeline processing functionality for Instructor PHP library",
+  "license": "MIT",
+  "homepage": "https://instructorphp.com",
+  "support": {
+    "issues": "https://github.com/cognesy/instructor-php/issues",
+    "source": "https://github.com/cognesy/instructor-php"
+  },
+  "authors": [
+    {
+      "name": "Dariusz Debowczyk",
+      "email": "ddebowczyk@gmail.com"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "Cognesy\\Pipeline\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Cognesy\\Pipeline\\Tests\\": "tests/"
+    }
+  },
+  "require": {
+    "php": "^8.2",
+    "cognesy/instructor-utils": "^1.1",
+    "psr/event-dispatcher": "^1.0"
+  },
+  "require-dev": {
+    "icanhazstring/composer-unused": "^0.9.0",
+    "jetbrains/phpstorm-attributes": "^1.2",
+    "maglnet/composer-require-checker": "^4.16",
+    "pestphp/pest": "^2.34",
+    "phpbench/phpbench": "^1.4",
+    "phpstan/phpstan": "^1.11",
+    "roave/security-advisories": "dev-latest",
+    "vimeo/psalm": "^6.0"
+  },
+  "scripts": {
+    "tests": "@php vendor/bin/pest",
+    "phpstan": "@php vendor/bin/phpstan -c phpstan.neon",
+    "psalm": "@php vendor/bin/psalm",
+    "benchmark": "@php vendor/bin/phpbench run tests/Benchmarks --report=default",
+    "benchmark:aggregate": "@php vendor/bin/phpbench run tests/Benchmarks --report=aggregate",
+    "benchmark:pipeline": "@php vendor/bin/phpbench run tests/Benchmarks/PipelineBench.php --report=aggregate",
+    "benchmark:order": "@php vendor/bin/phpbench run tests/Benchmarks --group=order --report=aggregate",
+    "benchmark:store": "@php vendor/bin/phpbench run tests/Benchmarks --store",
+    "benchmark:compare": "@php vendor/bin/phpbench run tests/Benchmarks --compare=baseline"
+  },
+  "config": {
+    "allow-plugins": {
+      "pestphp/pest-plugin": true
+    },
+    "sort-packages": true
+  },
+  "minimum-stability": "RC",
+  "prefer-stable": true
+}
