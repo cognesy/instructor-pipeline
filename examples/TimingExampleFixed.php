@@ -2,9 +2,10 @@
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use Cognesy\Pipeline\Middleware\TimingMiddleware;
+use Cognesy\Pipeline\Middleware\Timing;
 use Cognesy\Pipeline\Pipeline;
 use Cognesy\Pipeline\Tag\TimingTag;
+use Cognesy\Utils\Result\Result;
 
 echo "🕒 Pipeline Timing Middleware Demo (Fixed)\n";
 echo "==========================================\n\n";
@@ -14,7 +15,7 @@ echo "1. Timing Entire Pipeline\n";
 echo "-------------------------\n";
 
 $result = Pipeline::for(100)
-    ->withMiddleware(TimingMiddleware::for('complete_pipeline'))
+    ->withMiddleware(Timing::makeNamed('complete_pipeline'))
     ->through(function($x) {
         usleep(5000); // 5ms work
         return $x * 2;
@@ -23,11 +24,11 @@ $result = Pipeline::for(100)
         usleep(3000); // 3ms work  
         return $x + 50;
     })
-    ->process();
+    ->create();
 
-echo "Result: " . $result->value() . "\n";
+echo "Result: " . $result->valueOr() . "\n";
 
-$timings = $result->computation()->all(TimingTag::class);
+$timings = $result->state()->allTags(TimingTag::class);
 echo "Number of timing tags: " . count($timings) . "\n";
 foreach ($timings as $timing) {
     echo "⏱️  " . $timing->summary() . "\n";
@@ -42,7 +43,7 @@ $data = ['numbers' => [1, 2, 3, 4, 5]];
 
 // Process 1: Validation
 $validatedResult = Pipeline::for($data)
-    ->withMiddleware(TimingMiddleware::for('validation'))
+    ->withMiddleware(Timing::makeNamed('validation'))
     ->through(function($data) {
         usleep(2000); // Simulate validation
         if (!isset($data['numbers']) || !is_array($data['numbers'])) {
@@ -50,35 +51,35 @@ $validatedResult = Pipeline::for($data)
         }
         return $data;
     })
-    ->process();
+    ->create();
 
 // Process 2: Processing  
-$processedResult = Pipeline::for($validatedResult->value())
-    ->withMiddleware(TimingMiddleware::for('processing'))
+$processedResult = Pipeline::for($validatedResult->valueOr())
+    ->withMiddleware(Timing::makeNamed('processing'))
     ->through(function($data) {
         usleep(5000); // Simulate processing
         $sum = array_sum($data['numbers']);
         $avg = $sum / count($data['numbers']);
         return ['sum' => $sum, 'average' => $avg, 'count' => count($data['numbers'])];
     })
-    ->process();
+    ->create();
 
 // Process 3: Formatting
-$finalResult = Pipeline::for($processedResult->value())
-    ->withMiddleware(TimingMiddleware::for('formatting'))
+$finalResult = Pipeline::for($processedResult->valueOr())
+    ->withMiddleware(Timing::makeNamed('formatting'))
     ->through(function($result) {
         usleep(1000); // Simulate formatting
         return "Summary: {$result['count']} numbers, sum={$result['sum']}, avg={$result['average']}";
     })
-    ->process();
+    ->create();
 
-echo "Final result: " . $finalResult->value() . "\n";
+echo "Final result: " . $finalResult->valueOr() . "\n";
 
 // Collect all timing information
 $allTimings = [
-    ...$validatedResult->computation()->all(TimingTag::class),
-    ...$processedResult->computation()->all(TimingTag::class),
-    ...$finalResult->computation()->all(TimingTag::class)
+    ...$validatedResult->state()->allTags(TimingTag::class),
+    ...$processedResult->state()->allTags(TimingTag::class),
+    ...$finalResult->state()->allTags(TimingTag::class)
 ];
 
 echo "\nTiming Breakdown:\n";
@@ -94,19 +95,19 @@ echo "3. Error Handling (Custom Middleware)\n";
 echo "------------------------------------\n";
 
 // Create a custom error-aware timing middleware
-class ErrorAwareTimingMiddleware implements \Cognesy\Pipeline\Middleware\PipelineMiddlewareInterface
+class ErrorAwareTimingMiddleware implements \Cognesy\Pipeline\Contracts\CanControlStateProcessing
 {
-    public function handle(\Cognesy\Pipeline\Computation $computation, callable $next): \Cognesy\Pipeline\Computation
+    public function handle(\Cognesy\Pipeline\ProcessingState $state, callable $next): \Cognesy\Pipeline\ProcessingState
     {
         $startTime = microtime(true);
         
         try {
-            $nextComputation = $next($computation);
+            $nextState = $next($state);
             $endTime = microtime(true);
             
             // Check if result is a failure even without exception
-            $success = $nextComputation->result()->isSuccess();
-            $error = $success ? null : ($nextComputation->result()->error()->getMessage() ?? 'Unknown error');
+            $success = $nextState->result()->isSuccess();
+            $error = $success ? null : ($nextState->result()->error()->getMessage() ?? 'Unknown error');
             
             $timingTag = new TimingTag(
                 startTime: $startTime,
@@ -117,7 +118,7 @@ class ErrorAwareTimingMiddleware implements \Cognesy\Pipeline\Middleware\Pipelin
                 error: $error
             );
             
-            return $nextComputation->with($timingTag);
+            return $nextState->with($timingTag);
             
         } catch (\Throwable $e) {
             $endTime = microtime(true);
@@ -131,10 +132,10 @@ class ErrorAwareTimingMiddleware implements \Cognesy\Pipeline\Middleware\Pipelin
                 error: $e->getMessage()
             );
             
-            // Return failed computation with timing
-            return $computation
-                ->with($timingTag)
-                ->withResult(\Cognesy\Utils\Result\Result::failure($e));
+            // Return failed state with timing
+            return $state
+                ->withTags($timingTag)
+                ->withResult(Result::failure($e));
         }
     }
 }
@@ -148,14 +149,14 @@ $errorResult = Pipeline::for(10)
         }
         return $x * 2;
     })
-    ->process();
+    ->create();
 
 echo "Success: " . ($errorResult->isSuccess() ? 'Yes' : 'No') . "\n";
 if (!$errorResult->isSuccess()) {
     echo "Error: " . $errorResult->exception()->getMessage() . "\n";
 }
 
-$timings = $errorResult->computation()->all(TimingTag::class);
+$timings = $errorResult->state()->allTags(TimingTag::class);
 foreach ($timings as $timing) {
     echo "⏱️  " . $timing->summary() . "\n";
 }
@@ -166,7 +167,7 @@ echo "4. Complex Pipeline with Single Timing\n";
 echo "--------------------------------------\n";
 
 $complexResult = Pipeline::for(range(1, 10))
-    ->withMiddleware(TimingMiddleware::for('complex_processing'))
+    ->withMiddleware(Timing::makeNamed('complex_processing'))
     ->through(function($numbers) {
         usleep(1000);
         return array_filter($numbers, fn($n) => $n % 2 === 0);
@@ -184,11 +185,11 @@ $complexResult = Pipeline::for(range(1, 10))
             'min' => min($squares)
         ];
     })
-    ->process();
+    ->create();
 
-echo "Result: " . json_encode($complexResult->value()) . "\n";
+echo "Result: " . json_encode($complexResult->valueOr()) . "\n";
 
-$timings = $complexResult->computation()->all(TimingTag::class);
+$timings = $complexResult->state()->allTags(TimingTag::class);
 echo "Total operations measured: " . count($timings) . "\n";
 foreach ($timings as $timing) {
     echo "⏱️  " . $timing->summary() . "\n";

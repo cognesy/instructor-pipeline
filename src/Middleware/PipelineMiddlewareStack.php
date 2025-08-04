@@ -2,110 +2,73 @@
 
 namespace Cognesy\Pipeline\Middleware;
 
-use Cognesy\Pipeline\Computation;
+use Cognesy\Pipeline\Contracts\CanControlStateProcessing;
+use Cognesy\Pipeline\ProcessingState;
 
 /**
  * Manages a stack of middleware for MessageChain processing.
  *
  * The middleware stack implements the classic middleware pattern where each
  * middleware can decide whether to continue processing and can modify the
- * computation before and after the next middleware executes.
- *
- * Example:
- * ```php
- * $stack = new MiddlewareStack();
- * $stack->add(new LoggingMiddleware());
- * $stack->add(new MetricsMiddleware());
- * $stack->add(new TracingMiddleware());
- *
- * $result = $stack->process($computation, $finalProcessor);
- * ```
+ * state before and after the next middleware executes.
  */
 class PipelineMiddlewareStack
 {
-    /** @var PipelineMiddlewareInterface[] */
+    /** @var CanControlStateProcessing[] */
     private array $middleware = [];
 
-    /**
-     * Add middleware to the stack.
-     *
-     * Middleware is executed in the order it's added.
-     */
-    public function add(PipelineMiddlewareInterface ...$middleware): self {
-        $this->middleware = [...$this->middleware, ...$middleware];
+    public function add(CanControlStateProcessing ...$middleware): self {
+        array_push($this->middleware, ...$middleware);
         return $this;
     }
 
-    /**
-     * Add middleware at the beginning of the stack.
-     *
-     * This middleware will execute before any previously added middleware.
-     */
-    public function prepend(PipelineMiddlewareInterface ...$middleware): self {
-        $this->middleware = [...$middleware, ...$this->middleware];
+    public function prepend(CanControlStateProcessing ...$middleware): self {
+        array_unshift($this->middleware, ...$middleware);
         return $this;
     }
 
-    /**
-     * Check if stack has any middleware.
-     */
     public function isEmpty(): bool {
         return empty($this->middleware);
     }
 
-    /**
-     * Get count of middleware in stack.
-     */
     public function count(): int {
         return count($this->middleware);
     }
 
     /**
-     * Process computation through all middleware, ending with final processor.
-     *
-     * @param Computation $computation Initial computation
-     * @param callable $finalProcessor Final processor to execute after all middleware
-     * @return Computation Processed computation
+     * @param callable(ProcessingState):ProcessingState $finalProcessor Final processor to execute after all middleware
      */
-    public function process(Computation $computation, callable $finalProcessor): Computation {
+    public function process(ProcessingState $state, callable $finalProcessor): ProcessingState {
         if (empty($this->middleware)) {
-            return $finalProcessor($computation);
+            return $finalProcessor($state);
         }
-
-        // Build the middleware chain using array_reduce
-        // We reverse the middleware array so they execute in the correct order
-        $stack = array_reduce(
-            array_reverse($this->middleware),
-            function (callable $next, PipelineMiddlewareInterface $middleware) {
-                return fn(Computation $computation) => $middleware->handle($computation, $next);
-            },
-            $finalProcessor,
-        );
-
-        return $stack($computation);
+        
+        $stack = $finalProcessor;
+        
+        // Build stack from last to first middleware
+        for ($i = count($this->middleware) - 1; $i >= 0; $i--) {
+            $middleware = $this->middleware[$i];
+            $stack = function(ProcessingState $s) use ($middleware, $stack) {
+                return $middleware->handle($s, $stack);
+            };
+        }
+        
+        return $stack($state);
     }
 
-    /**
-     * Create a new stack with additional middleware.
-     */
-    public function with(PipelineMiddlewareInterface ...$middleware): self {
+    public function with(CanControlStateProcessing ...$middleware): self {
         $new = clone $this;
         $new->add(...$middleware);
         return $new;
     }
 
-    /**
-     * Clear all middleware from the stack.
-     */
     public function clear(): self {
         $this->middleware = [];
         return $this;
     }
 
     /**
-     * Get all middleware in the stack.
-     *
-     * @return PipelineMiddlewareInterface[]
+     * @return CanControlStateProcessing[]
      */
     public function all(): array {
         return $this->middleware;

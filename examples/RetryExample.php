@@ -2,11 +2,10 @@
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use Cognesy\Pipeline\Computation;
-use Cognesy\Pipeline\Middleware\PipelineMiddlewareInterface;
+use Cognesy\Pipeline\Contracts\CanControlStateProcessing;
 use Cognesy\Pipeline\Pipeline;
+use Cognesy\Pipeline\ProcessingState;
 use Cognesy\Pipeline\Tag\TagInterface;
-use Cognesy\Utils\Result\Result;
 
 // ============================================================================
 // TAGS FOR RETRY TRACKING
@@ -93,16 +92,16 @@ class RetrySessionTag implements TagInterface
 /**
  * Middleware that implements retry logic with attempt tracking
  */
-class RetryMiddleware implements PipelineMiddlewareInterface
+class RetryMiddleware implements CanControlStateProcessing
 {
-    public function handle(Computation $computation, callable $next): Computation
+    public function handle(ProcessingState $state, callable $next): ProcessingState
     {
         // Get or create retry configuration
-        $retryConfig = $computation->last(RetryConfigTag::class) 
+        $retryConfig = $state->lastTag(RetryConfigTag::class)
             ?? new RetryConfigTag();
 
         // Get or create retry session
-        $retrySession = $computation->last(RetrySessionTag::class)
+        $retrySession = $state->lastTag(RetrySessionTag::class)
             ?? new RetrySessionTag(
                 sessionId: uniqid('retry_', true),
                 startTime: new \DateTimeImmutable(),
@@ -110,19 +109,19 @@ class RetryMiddleware implements PipelineMiddlewareInterface
             );
 
         // Add session tag if not present
-        if (!$computation->has(RetrySessionTag::class)) {
-            $computation = $computation->with($retrySession);
+        if (!$state->hasTag(RetrySessionTag::class)) {
+            $state = $state->withTags($retrySession);
         }
 
-        $currentAttempt = $computation->count(RetryAttemptTag::class) + 1;
+        $currentAttempt = $state->countTag(RetryAttemptTag::class) + 1;
         $startTime = microtime(true);
 
         try {
             // Execute the next middleware/processor
-            $result = $next($computation);
+            $result = $next($state);
             
             // Check if the result is a failure (even if no exception was thrown)
-            if ($result instanceof Computation && $result->result()->isFailure()) {
+            if ($result instanceof ProcessingState && $result->result()->isFailure()) {
                 $error = $result->result()->error();
                 if ($error instanceof \Throwable) {
                     // Treat failed results as exceptions for retry logic
@@ -138,7 +137,7 @@ class RetryMiddleware implements PipelineMiddlewareInterface
                 duration: $duration
             );
 
-            return $result->with($attemptTag);
+            return $result->withTags($attemptTag);
 
         } catch (\Throwable $e) {
             $duration = microtime(true) - $startTime;
@@ -151,7 +150,7 @@ class RetryMiddleware implements PipelineMiddlewareInterface
                 duration: $duration
             );
 
-            $computationWithAttempt = $computation->with($attemptTag);
+            $stateWithAttempt = $state->withTags($attemptTag);
 
             // Check if we should retry
             if ($retryConfig->shouldRetry($e, $currentAttempt)) {
@@ -162,11 +161,11 @@ class RetryMiddleware implements PipelineMiddlewareInterface
                 }
 
                 // Recursive retry by calling handle again
-                return $this->handle($computationWithAttempt, $next);
+                return $this->handle($stateWithAttempt, $next);
             }
 
-            // No more retries, return failure computation
-            return $computationWithAttempt->withResult(Result::failure($e));
+            // No more retries, return failure state
+            return $stateWithAttempt->failWith($e);
         }
     }
 
@@ -192,7 +191,7 @@ class RetryMiddleware implements PipelineMiddlewareInterface
 /**
  * Middleware to log retry attempts and outcomes
  */
-class RetryLoggingMiddleware implements PipelineMiddlewareInterface
+class RetryLoggingMiddleware implements CanControlStateProcessing
 {
     public function __construct(private ?\Psr\Log\LoggerInterface $logger = null)
     {
@@ -209,12 +208,12 @@ class RetryLoggingMiddleware implements PipelineMiddlewareInterface
         };
     }
 
-    public function handle(Computation $computation, callable $next): Computation
+    public function handle(ProcessingState $state, callable $next): ProcessingState
     {
-        $session = $computation->last(RetrySessionTag::class);
-        $beforeAttempts = $computation->count(RetryAttemptTag::class);
+        $session = $state->lastTag(RetrySessionTag::class);
+        $beforeAttempts = $state->countTag(RetryAttemptTag::class);
 
-        $result = $next($computation);
+        $result = $next($state);
 
         $afterAttempts = $result->count(RetryAttemptTag::class);
         
@@ -298,7 +297,7 @@ function demonstrateBasicRetry(): void
     );
 
     $result = Pipeline::for('/api/users')
-        ->withTag(
+        ->withTags(
             $retryConfig,
             new RetrySessionTag(
                 sessionId: 'demo_' . uniqid(),
@@ -314,20 +313,20 @@ function demonstrateBasicRetry(): void
             echo "Attempting API call to: $endpoint\n";
             return UnreliableService::makeApiCall($endpoint);
         })
-        ->process();
+        ->create();
 
     if ($result->isSuccess()) {
         echo "✅ Operation succeeded!\n";
-        echo "Result: " . json_encode($result->value()) . "\n";
+        echo "Result: " . json_encode($result->valueOr()) . "\n";
     } else {
         echo "❌ Operation failed after all retries\n";
         echo "Error: " . $result->exception()->getMessage() . "\n";
     }
 
     // Analyze retry attempts
-    $computation = $result->computation();
-    $attempts = $computation->all(RetryAttemptTag::class);
-    $session = $computation->last(RetrySessionTag::class);
+    $state = $result->state();
+    $attempts = $state->allTags(RetryAttemptTag::class);
+    $session = $state->lastTag(RetrySessionTag::class);
 
     echo "\n📊 Retry Analysis:\n";
     echo "Session ID: {$session->sessionId}\n";
@@ -358,7 +357,7 @@ function demonstrateRetryWithProcessing(): void
     );
 
     $result = Pipeline::for(['endpoint' => '/api/data', 'params' => ['limit' => 10]])
-        ->withTag(
+        ->withTags(
             $retryConfig,
             new RetrySessionTag(
                 sessionId: 'processing_' . uniqid(),
@@ -389,19 +388,19 @@ function demonstrateRetryWithProcessing(): void
                 ]
             ];
         })
-        ->process();
+        ->create();
 
     if ($result->isSuccess()) {
         echo "✅ Data processing completed!\n";
-        echo "Processed data: " . json_encode($result->value(), JSON_PRETTY_PRINT) . "\n";
+        echo "Processed data: " . json_encode($result->valueOr(), JSON_PRETTY_PRINT) . "\n";
     } else {
         echo "❌ Data processing failed\n";
         echo "Error: " . $result->exception()->getMessage() . "\n";
     }
 
     // Show attempt history
-    $computation = $result->computation();
-    $attempts = $computation->all(RetryAttemptTag::class);
+    $state = $result->state();
+    $attempts = $state->allTags(RetryAttemptTag::class);
     
     echo "\n📈 Processing Attempts:\n";
     foreach ($attempts as $attempt) {
@@ -440,16 +439,16 @@ function demonstrateRetryConfiguration(): void
         $start = microtime(true);
         
         $result = Pipeline::for("test-$strategy")
-            ->withTag($retryConfig)
+            ->withTags($retryConfig)
             ->withMiddleware($retryMiddleware)
             ->through(function(string $test) {
                 return UnreliableService::makeApiCall("/api/$test");
             })
-            ->process();
+            ->create();
 
         $totalTime = microtime(true) - $start;
         
-        $attempts = $result->computation()->all(RetryAttemptTag::class);
+        $attempts = $result->state()->allTags(RetryAttemptTag::class);
         echo "  Total attempts: " . count($attempts) . "\n";
         echo "  Total time: " . number_format($totalTime * 1000, 2) . "ms\n";
         echo "  Result: " . ($result->isSuccess() ? '✅ Success' : '❌ Failed') . "\n";

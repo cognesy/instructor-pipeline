@@ -2,7 +2,7 @@
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use Cognesy\Pipeline\Middleware\TimingMiddleware;
+use Cognesy\Pipeline\Middleware\Timing;
 use Cognesy\Pipeline\Pipeline;
 use Cognesy\Pipeline\Tag\TimingTag;
 use Cognesy\Pipeline\Workflow\Workflow;
@@ -24,7 +24,7 @@ $orderData = [
 
 // Define pipeline components
 $validationPipeline = Pipeline::for($orderData)
-    ->withMiddleware(TimingMiddleware::for('validation'))
+    ->withMiddleware(Timing::makeNamed('validation'))
     ->through(function($order) {
         echo "  🔍 Validating order format...\n";
         if (!isset($order['id'], $order['customer_id'], $order['items'])) {
@@ -41,7 +41,7 @@ $validationPipeline = Pipeline::for($orderData)
     });
 
 $inventoryPipeline = Pipeline::for($orderData)
-    ->withMiddleware(TimingMiddleware::for('inventory'))
+    ->withMiddleware(Timing::makeNamed('inventory'))
     ->through(function($order) {
         echo "  📦 Checking inventory availability...\n";
         // Simulate inventory check
@@ -54,7 +54,7 @@ $inventoryPipeline = Pipeline::for($orderData)
     });
 
 $paymentPipeline = Pipeline::for($orderData)
-    ->withMiddleware(TimingMiddleware::for('payment'))
+    ->withMiddleware(Timing::makeNamed('payment'))
     ->through(function($order) {
         echo "  💳 Processing payment...\n";
         if ($order['total'] > 1000) {
@@ -64,7 +64,7 @@ $paymentPipeline = Pipeline::for($orderData)
     });
 
 $fulfillmentPipeline = Pipeline::for($orderData)
-    ->withMiddleware(TimingMiddleware::for('fulfillment'))
+    ->withMiddleware(Timing::makeNamed('fulfillment'))
     ->through(function($order) {
         echo "  📋 Creating order record...\n";
         return [...$order, 'order_created' => true];
@@ -87,11 +87,11 @@ echo "Creating order processing workflow...\n\n";
 $orderWorkflow = Workflow::empty()
     ->through($validationPipeline)
     ->when(
-        fn($computation) => $computation->result()->isSuccess(),
+        fn($state) => $state->result()->isSuccess(),
         $inventoryPipeline
     )
     ->when(
-        fn($computation) => $computation->result()->isSuccess() && $computation->result()->unwrap()['total'] > 50,
+        fn($state) => $state->result()->isSuccess() && $state->result()->unwrap()['total'] > 50,
         $paymentPipeline  // Only process payment for orders > $50
     )
     ->through($fulfillmentPipeline)
@@ -108,7 +108,7 @@ echo "────────────────────────�
 if ($result->isSuccess()) {
     echo "✅ Order processed successfully!\n\n";
     
-    $finalOrder = $result->value();
+    $finalOrder = $result->valueOr();
     echo "Final order status:\n";
     echo "  - Validated: " . ($finalOrder['validated'] ? '✅' : '❌') . "\n";
     echo "  - Customer validated: " . ($finalOrder['customer_validated'] ? '✅' : '❌') . "\n";
@@ -124,7 +124,7 @@ if ($result->isSuccess()) {
 // Show timing information from all pipeline stages
 echo "\nTiming Information:\n";
 echo "─────────────────────\n";
-$timings = $result->computation()->all(TimingTag::class);
+$timings = $result->state()->allTags(TimingTag::class);
 $totalTime = 0;
 
 foreach ($timings as $timing) {
