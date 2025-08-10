@@ -1,12 +1,10 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Pipeline\Tag\Internal;
+namespace Cognesy\Pipeline\Internal;
 
 use Cognesy\Pipeline\Contracts\TagInterface;
 use Cognesy\Pipeline\Contracts\TagMapInterface;
-use Cognesy\Pipeline\Tag\TagMapFactory;
 use Cognesy\Pipeline\Tag\TagQuery;
-use Cognesy\Pipeline\Tag\TagTransform;
 use Cognesy\Utils\Arrays;
 
 /**
@@ -127,15 +125,11 @@ final readonly class SimpleTagMap implements TagMapInterface
     }
 
     public function newInstance(array $tags): TagMapInterface {
-        return TagMapFactory::create($tags);
+        return new self($tags);
     }
 
     public function query(): TagQuery {
         return new TagQuery($this);
-    }
-
-    public function transform(): TagTransform {
-        return new TagTransform($this);
     }
 
     public function with(TagInterface ...$tags): self {
@@ -148,57 +142,3 @@ final readonly class SimpleTagMap implements TagMapInterface
         return new self($newTags);
     }
 }
-
-//    /**
-//     * @return class-string[] Array of tag class names
-//     */
-//    public function classes(): array {
-//        return array_keys($this->tags);
-//    }
-
-//    /**
-//     * @param class-string $tagClass Class of the tags to filter
-//     * @param callable(TagInterface):bool $predicate Function that returns true for tags to keep
-//     */
-//    public function filter(string $tagClass, callable $predicate): self {
-//        if (!isset($this->tags[$tagClass])) {
-//            return $this;
-//        }
-//
-//        $newTags = $this->tags;
-//        $filtered = array_filter($this->tags[$tagClass], $predicate);
-//
-//        if (empty($filtered)) {
-//            unset($newTags[$tagClass]);
-//        } else {
-//            $newTags[$tagClass] = array_values($filtered);
-//        }
-//
-//        return new self($newTags);
-//    }
-
-//    /**
-//     * @param class-string $tagClass Class of the tag to retrieve
-//     */
-//    public function first(string $tagClass): ?TagInterface {
-//        $tags = $this->tags[$tagClass] ?? [];
-//        return empty($tags) ? null : reset($tags);
-//    }
-
-//    /**
-//     * @return array<TagInterface>
-//     */
-//    public function getAllInOrder(): array {
-//        return array_merge(...array_values($this->tags));
-//    }
-
-//    /**
-//     * @return TagInterface[] Array of tags
-//     */
-//    public function all(?string $tagClass = null): array {
-//        return match (true) {
-//            ($tagClass === null) => Arrays::flatten($this->tags),
-//            default => $this->tags[$tagClass] ?? [],
-//        };
-//    }
-//

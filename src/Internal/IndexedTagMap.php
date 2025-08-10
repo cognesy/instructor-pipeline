@@ -1,11 +1,10 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Pipeline\Tag\Internal;
+namespace Cognesy\Pipeline\Internal;
 
 use Cognesy\Pipeline\Contracts\TagInterface;
 use Cognesy\Pipeline\Contracts\TagMapInterface;
 use Cognesy\Pipeline\Tag\TagQuery;
-use Cognesy\Pipeline\Tag\TagTransform;
 
 /**
  * Minimal tag map implementation with sequential IDs and efficient storage.
@@ -96,10 +95,6 @@ final class IndexedTagMap implements TagMapInterface
 
     public function query(): TagQuery {
         return new TagQuery($this);
-    }
-
-    public function transform(): TagTransform {
-        return new TagTransform($this);
     }
 
     public function with(TagInterface ...$tags): self {

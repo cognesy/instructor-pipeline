@@ -1,27 +1,21 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Pipeline\Tag;
+namespace Cognesy\Pipeline\Tag\Observation;
 
 use Cognesy\Pipeline\Contracts\TagInterface;
 
 /**
- * Tag that records timing information for pipeline operations.
- *
- * Captures high-precision timing data including start time, end time,
- * and calculated duration. Supports optional operation naming and
- * success/failure tracking.
+ * Pure timing tag - captures essential timing data only.
+ * 
+ * No memory tracking, no complex logic - just clean timing information.
+ * Dedicated consumer components handle SLA monitoring, alerts, etc.
  *
  * Example usage:
  * ```php
- * // Get timing information from state
- * $timings = $state->all(TimingTag::class);
- *
+ * $timings = $state->allTags(TimingTag::class);
  * foreach ($timings as $timing) {
  *     echo "{$timing->operationName}: {$timing->durationMs()}ms\n";
  * }
- *
- * // Get total processing time
- * $totalTime = array_sum(array_map(fn($t) => $t->duration, $timings));
  * ```
  */
 readonly class TimingTag implements TagInterface
@@ -32,7 +26,6 @@ readonly class TimingTag implements TagInterface
         public float $duration,
         public ?string $operationName = null,
         public bool $success = true,
-        public ?string $error = null,
     ) {}
 
     /**
@@ -99,23 +92,6 @@ readonly class TimingTag implements TagInterface
     }
 
     /**
-     * Get a summary string for logging/debugging.
-     */
-    public function summary(): string {
-        $name = $this->operationName ?? 'operation';
-        $status = $this->success ? 'SUCCESS' : 'FAILED';
-        $duration = $this->durationFormatted();
-
-        $summary = "{$name}: {$status} in {$duration}";
-
-        if ($this->error) {
-            $summary .= " (Error: {$this->error})";
-        }
-
-        return $summary;
-    }
-
-    /**
      * Convert to array for serialization/logging.
      */
     public function toArray(): array {
@@ -126,44 +102,7 @@ readonly class TimingTag implements TagInterface
             'duration_seconds' => $this->duration,
             'duration_ms' => $this->durationMs(),
             'success' => $this->success,
-            'error' => $this->error,
             'formatted_duration' => $this->durationFormatted(),
         ];
-    }
-
-    /**
-     * Create a timing tag for a successful operation.
-     */
-    public static function success(
-        float $startTime,
-        float $endTime,
-        ?string $operationName = null,
-    ): self {
-        return new self(
-            startTime: $startTime,
-            endTime: $endTime,
-            duration: $endTime - $startTime,
-            operationName: $operationName,
-            success: true,
-        );
-    }
-
-    /**
-     * Create a timing tag for a failed operation.
-     */
-    public static function failure(
-        float $startTime,
-        float $endTime,
-        string $error,
-        ?string $operationName = null,
-    ): self {
-        return new self(
-            startTime: $startTime,
-            endTime: $endTime,
-            duration: $endTime - $startTime,
-            operationName: $operationName,
-            success: false,
-            error: $error,
-        );
     }
 }

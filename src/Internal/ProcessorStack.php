@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Pipeline\Processor;
+namespace Cognesy\Pipeline\Internal;
 
 use ArrayIterator;
 use Cognesy\Pipeline\Contracts\CanProcessState;

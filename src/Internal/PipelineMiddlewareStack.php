@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Pipeline\Middleware;
+namespace Cognesy\Pipeline\Internal;
 
 use Cognesy\Pipeline\Contracts\CanControlStateProcessing;
 use Cognesy\Pipeline\ProcessingState;
