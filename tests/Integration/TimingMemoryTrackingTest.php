@@ -1,11 +1,11 @@
 <?php
 
-use Cognesy\Pipeline\Middleware\Observation\StepMemory;
-use Cognesy\Pipeline\Middleware\Observation\StepTiming;
-use Cognesy\Pipeline\Middleware\Observation\TrackMemory;
-use Cognesy\Pipeline\Middleware\Observation\TrackTime;
+use Cognesy\Pipeline\Operators\Call;
+use Cognesy\Pipeline\Operators\Observation\StepMemory;
+use Cognesy\Pipeline\Operators\Observation\StepTiming;
+use Cognesy\Pipeline\Operators\Observation\TrackMemory;
+use Cognesy\Pipeline\Operators\Observation\TrackTime;
 use Cognesy\Pipeline\Pipeline;
-use Cognesy\Pipeline\Processor\Call;
 use Cognesy\Pipeline\Tag\Observation\MemoryTag;
 use Cognesy\Pipeline\Tag\Observation\StepMemoryTag;
 use Cognesy\Pipeline\Tag\Observation\StepTimingTag;
@@ -14,12 +14,12 @@ use Cognesy\Pipeline\Tag\Observation\TimingTag;
 describe('TrackTime and Memory Tracking Integration', function () {
     
     it('captures pipeline-level timing data', function () {
-        $result = Pipeline::empty()
-            ->withMiddleware(TrackTime::capture('test-operation'))
-            ->throughProcessor(Call::withValue(fn($x) => $x * 2))
+        $result = Pipeline::builder()
+            ->withOperator(TrackTime::capture('test-operation'))
+            ->throughOperator(Call::withValue(fn($x) => $x * 2))
             ->create()
-            ->for(5)
-            ->execute();
+            ->executeWith(5)
+            ->state();
 
         $timings = $result->allTags(TimingTag::class);
         
@@ -35,16 +35,16 @@ describe('TrackTime and Memory Tracking Integration', function () {
     });
 
     it('captures pipeline-level memory data', function () {
-        $result = Pipeline::empty()
-            ->withMiddleware(TrackMemory::capture('memory-test'))
-            ->throughProcessor(Call::withValue(function($x) {
+        $result = Pipeline::builder()
+            ->withOperator(TrackMemory::capture('memory-test'))
+            ->throughOperator(Call::withValue(function($x) {
                 // Allocate some memory to see usage
                 $data = array_fill(0, 1000, 'test');
                 return $x + count($data);
             }))
             ->create()
-            ->for(10)
-            ->execute();
+            ->executeWith(10)
+            ->state();
 
         $memoryTags = $result->allTags(MemoryTag::class);
         
@@ -58,13 +58,13 @@ describe('TrackTime and Memory Tracking Integration', function () {
     });
 
     it('captures step-level timing data', function () {
-        $result = Pipeline::empty()
+        $result = Pipeline::builder()
             ->aroundEach(StepTiming::capture('all-steps'))  // Single hook for all processors
-            ->throughProcessor(Call::withValue(fn($x) => $x + 1))
-            ->throughProcessor(Call::withValue(fn($x) => $x * 3))
+            ->throughOperator(Call::withValue(fn($x) => $x + 1))
+            ->throughOperator(Call::withValue(fn($x) => $x * 3))
             ->create()
-            ->for(2)
-            ->execute();
+            ->executeWith(2)
+            ->state();
 
         $stepTimings = $result->allTags(StepTimingTag::class);
         
@@ -81,15 +81,15 @@ describe('TrackTime and Memory Tracking Integration', function () {
     });
 
     it('captures step-level memory data', function () {
-        $result = Pipeline::empty()
+        $result = Pipeline::builder()
             ->aroundEach(StepMemory::capture('memory-step'))
-            ->throughProcessor(Call::withValue(function($x) {
+            ->throughOperator(Call::withValue(function($x) {
                 $data = str_repeat('x', 1000);
                 return $x . $data;
             }))
             ->create()
-            ->for('test')
-            ->execute();
+            ->executeWith('test')
+            ->state();
 
         $stepMemory = $result->allTags(StepMemoryTag::class);
         
@@ -103,15 +103,15 @@ describe('TrackTime and Memory Tracking Integration', function () {
     });
 
     it('combines timing and memory tracking', function () {
-        $result = Pipeline::empty()
-            ->withMiddleware(TrackTime::capture('full-pipeline'))
-            ->withMiddleware(TrackMemory::capture('full-pipeline'))
+        $result = Pipeline::builder()
+            ->withOperator(TrackTime::capture('full-pipeline'))
+            ->withOperator(TrackMemory::capture('full-pipeline'))
             ->aroundEach(StepTiming::capture('multiply-step'))
             ->aroundEach(StepMemory::capture('multiply-step'))
-            ->throughProcessor(Call::withValue(fn($x) => $x * 2))
+            ->throughOperator(Call::withValue(fn($x) => $x * 2))
             ->create()
-            ->for(10)
-            ->execute();
+            ->executeWith(10)
+            ->state();
 
         // Check we have all expected tags
         expect($result->allTags(TimingTag::class))->toHaveCount(1);
@@ -125,15 +125,15 @@ describe('TrackTime and Memory Tracking Integration', function () {
     });
 
     it('tracks timing for failed operations', function () {
-        $result = Pipeline::empty()
-            ->withMiddleware(TrackTime::capture('failing-op'))
+        $result = Pipeline::builder()
+            ->withOperator(TrackTime::capture('failing-op'))
             ->aroundEach(StepTiming::capture('failing-step'))
-            ->throughProcessor(Call::withValue(function($x) {
+            ->throughOperator(Call::withValue(function($x) {
                 throw new Exception('Test failure');
             }))
             ->create()
-            ->for(5)
-            ->execute();
+            ->executeWith(5)
+            ->state();
 
         $timing = $result->allTags(TimingTag::class)[0];
         $stepTiming = $result->allTags(StepTimingTag::class)[0];
@@ -145,16 +145,16 @@ describe('TrackTime and Memory Tracking Integration', function () {
     });
 
     it('formats durations correctly', function () {
-        $result = Pipeline::empty()
-            ->withMiddleware(TrackTime::capture('format-test'))
-            ->throughProcessor(Call::withValue(function($x) {
+        $result = Pipeline::builder()
+            ->withOperator(TrackTime::capture('format-test'))
+            ->throughOperator(Call::withValue(function($x) {
                 // Small delay to get measurable timing
                 usleep(1000); // 1ms
                 return $x;
             }))
             ->create()
-            ->for(1)
-            ->execute();
+            ->executeWith(1)
+            ->state();
 
         $timing = $result->allTags(TimingTag::class)[0];
         

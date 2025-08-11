@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Pipeline\Processor;
+namespace Cognesy\Pipeline\Operators;
 
 use Cognesy\Pipeline\Contracts\CanProcessState;
 use Cognesy\Pipeline\ProcessingState;
@@ -9,7 +9,7 @@ use Cognesy\Utils\Result\Result;
 use RuntimeException;
 use Throwable;
 
-readonly class Fail implements CanProcessState {
+readonly final class Fail implements CanProcessState {
     private function __construct(
         private Throwable $e,
     ) {}
@@ -21,12 +21,15 @@ readonly class Fail implements CanProcessState {
         });
     }
 
-    public function process(ProcessingState $state): ProcessingState {
+    public function process(ProcessingState $state, ?callable $next = null): ProcessingState {
         if ($state->isFailure()) {
-            return $state;
+            return $next ? $next($state) : $state;
         }
-        return $state
+
+        $failedState = $state
             ->withResult(Result::failure($this->e))
             ->withTags(ErrorTag::fromException($this->e));
+
+        return $next ? $next($failedState) : $failedState;
     }
 }

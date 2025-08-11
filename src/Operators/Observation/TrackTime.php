@@ -1,8 +1,8 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Pipeline\Middleware\Observation;
+namespace Cognesy\Pipeline\Operators\Observation;
 
-use Cognesy\Pipeline\Contracts\CanControlStateProcessing;
+use Cognesy\Pipeline\Contracts\CanProcessState;
 use Cognesy\Pipeline\ProcessingState;
 use Cognesy\Pipeline\Tag\Observation\TimingTag;
 
@@ -12,7 +12,7 @@ use Cognesy\Pipeline\Tag\Observation\TimingTag;
  * Fast, lightweight, no memory tracking, no complex logic.
  * Dedicated consumer components handle SLA monitoring, timeouts, etc.
  */
-readonly class TrackTime implements CanControlStateProcessing
+readonly class TrackTime implements CanProcessState
 {
     public function __construct(
         private ?string $operationName = null,
@@ -25,10 +25,10 @@ readonly class TrackTime implements CanControlStateProcessing
         return new self($operationName);
     }
 
-    public function handle(ProcessingState $state, callable $next): ProcessingState {
+    public function process(ProcessingState $state, ?callable $next = null): ProcessingState {
         $startTime = microtime(true);
 
-        $output = $next($state);
+        $output = $next ? $next($state) : $state;
 
         $endTime = microtime(true);
         $duration = $endTime - $startTime;

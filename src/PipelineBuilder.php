@@ -2,68 +2,36 @@
 
 namespace Cognesy\Pipeline;
 
-use Closure;
-use Cognesy\Pipeline\Contracts\CanControlStateProcessing;
-use Cognesy\Pipeline\Contracts\CanFinalizeProcessing;
 use Cognesy\Pipeline\Contracts\CanProcessState;
-use Cognesy\Pipeline\Contracts\TagInterface;
 use Cognesy\Pipeline\Enums\NullStrategy;
-use Cognesy\Pipeline\Finalizer\Finalize;
-use Cognesy\Pipeline\Internal\PipelineMiddlewareStack;
-use Cognesy\Pipeline\Internal\ProcessorStack;
-use Cognesy\Pipeline\Middleware\CallAfter;
-use Cognesy\Pipeline\Middleware\CallBefore;
-use Cognesy\Pipeline\Middleware\CallOnFailure;
-use Cognesy\Pipeline\Middleware\FailWhen;
-use Cognesy\Pipeline\Middleware\SkipProcessing;
-use Cognesy\Pipeline\Processor\Call;
-use Cognesy\Pipeline\Processor\ConditionalCall;
-use Cognesy\Pipeline\Processor\Fail;
-use Cognesy\Pipeline\Processor\Tap;
+use Cognesy\Pipeline\Internal\OperatorStack;
+use Cognesy\Pipeline\Operators\Call;
+use Cognesy\Pipeline\Operators\CallAfter;
+use Cognesy\Pipeline\Operators\CallBefore;
+use Cognesy\Pipeline\Operators\ConditionalCall;
+use Cognesy\Pipeline\Operators\Fail;
+use Cognesy\Pipeline\Operators\FailWhen;
+use Cognesy\Pipeline\Operators\RawCall;
+use Cognesy\Pipeline\Operators\Skip;
+use Cognesy\Pipeline\Operators\Tap;
+use Cognesy\Pipeline\Operators\TapOnFailure;
 use InvalidArgumentException;
 
 class PipelineBuilder
 {
-    /** @var Closure():mixed $source */
-    private Closure $source;
-    /** @var array<TagInterface> */
-    private array $tags;
-    private ProcessorStack $processors;
-    private CanFinalizeProcessing $finalizer;
-    private PipelineMiddlewareStack $middleware; // per-pipeline execution middleware stack
-    private PipelineMiddlewareStack $hooks; // per-processor execution hooks
+    private OperatorStack $steps;
+    private OperatorStack $middleware; // per-pipeline execution middleware stack
+    private OperatorStack $hooks; // per-processor execution hooks
+    private OperatorStack $finalizers;
 
     /**
      * @param ?callable():mixed $source
      */
-    public function __construct(
-        ?callable $source = null,
-        ?array $tags = null,
-    ) {
-        $this->source = $source ?? fn() => null;
-        $this->tags = $tags ?? [];
-        $this->processors = new ProcessorStack();
-        $this->finalizer = Finalize::passThrough();
-        $this->middleware = new PipelineMiddlewareStack();
-        $this->hooks = new PipelineMiddlewareStack();
-    }
-
-    /**
-     * @param callable():mixed $source
-     */
-    public function withSource(callable $source): static {
-        $this->source = $source;
-        return $this;
-    }
-
-    public function withInitialValue(mixed $value): static {
-        $this->source = fn() => $value;
-        return $this;
-    }
-
-    public function withTags(TagInterface ...$tags): static {
-        $this->tags = array_merge($this->tags, $tags);
-        return $this;
+    public function __construct() {
+        $this->steps = new OperatorStack();
+        $this->middleware = new OperatorStack();
+        $this->hooks = new OperatorStack();
+        $this->finalizers = new OperatorStack();
     }
 
     // MIDDLEWARE SUPPORT /////////////////////////////////////////////////////////////////////
@@ -74,16 +42,16 @@ class PipelineBuilder
      * Middleware executes around each processor, allowing for sophisticated
      * cross-cutting concerns like distributed tracing, circuit breakers, etc.
      */
-    public function withMiddleware(CanControlStateProcessing ...$middleware): static {
-        $this->middleware->add(...$middleware);
+    public function withOperator(CanProcessState ...$operator): static {
+        $this->middleware->add(...$operator);
         return $this;
     }
 
     /**
      * Add middleware at the beginning of the stack (executes first).
      */
-    public function prependMiddleware(CanControlStateProcessing ...$middleware): static {
-        $this->middleware->prepend(...$middleware);
+    public function prependOperator(CanProcessState ...$operator): static {
+        $this->middleware->prepend(...$operator);
         return $this;
     }
 
@@ -92,35 +60,35 @@ class PipelineBuilder
     /**
      * Add a hook to execute before each processor.
      *
-     * @param callable(ProcessingState):mixed $hook
+     * @param callable(ProcessingState):mixed $operation
      */
-    public function beforeEach(callable $hook): static {
-        $this->hooks->add(CallBefore::with($hook));
+    public function beforeEach(callable $operation): static {
+        $this->hooks->add(CallBefore::with($operation));
         return $this;
     }
 
     /**
      * Add a hook to execute after each processor.
      *
-     * @param callable(ProcessingState):mixed $hook
+     * @param callable(ProcessingState):mixed $operation
      */
-    public function afterEach(callable $hook): static {
-        $this->hooks->add(CallAfter::with($hook));
+    public function afterEach(callable $operation): static {
+        $this->hooks->add(CallAfter::with($operation));
         return $this;
     }
 
     /**
      * Add a hook that wraps around each processor execution.
-     * 
+     *
      * The hook will be applied to ALL processors in the pipeline, creating
      * one tag/measurement per processor. Useful for timing, memory tracking,
      * and other measurements that need to capture data before and after
      * each individual processor execution.
      *
-     * @param CanControlStateProcessing $hook
+     * @param CanProcessState $operation
      */
-    public function aroundEach(CanControlStateProcessing $hook): static {
-        $this->hooks->add($hook);
+    public function aroundEach(CanProcessState $operation): static {
+        $this->hooks->add($operation);
         return $this;
     }
 
@@ -130,17 +98,17 @@ class PipelineBuilder
      * @param callable(ProcessingState):bool $condition
      */
     public function finishWhen(callable $condition): static {
-        $this->hooks->add(SkipProcessing::when($condition));
+        $this->hooks->add(Skip::when($condition));
         return $this;
     }
 
     /**
      * Add a failure handler executed when any step fails.
      *
-     * @param callable(ProcessingState):void $handler
+     * @param callable(ProcessingState):void $operation
      */
-    public function onFailure(callable $handler): static {
-        $this->hooks->add(CallOnFailure::with($handler));
+    public function onFailure(callable $operation): static {
+        $this->hooks->add(TapOnFailure::with($operation));
         return $this;
     }
 
@@ -157,92 +125,108 @@ class PipelineBuilder
     // PROCESSING /////////////////////////////////////////////////////////////////////////////
 
     /**
-     * @param array<callable(mixed):mixed> $callables
+     * @param array<callable(mixed):mixed> $operations
      */
-    public function throughAll(callable ...$callables): static {
-        foreach ($callables as $callable) {
-            $this->through($callable);
+    public function throughAll(callable ...$operations): static {
+        foreach ($operations as $operation) {
+            $this->through($operation);
         }
         return $this;
     }
 
     /**
-     * @param callable(mixed):mixed $processor
+     * @param callable(mixed):mixed $operation
      */
-    public function through(callable $processor, NullStrategy $onNull = NullStrategy::Fail): static {
-        $this->processors->add(Call::withValue($processor)->onNull($onNull));
+    public function through(callable $operation, NullStrategy $onNull = NullStrategy::Fail): static {
+        $this->steps->add(Call::withValue($operation)->onNull($onNull));
         return $this;
     }
 
-    public function throughProcessor(CanProcessState $processor): static {
-        $this->processors->add($processor);
+    public function throughOperator(CanProcessState $operator): static {
+        $this->steps->add($operator);
+        return $this;
+    }
+
+    /**
+     * Raw call for fast execution - no normalization, null processing, or error handling.
+     *
+     * @param callable(ProcessingState, ?callable):ProcessingState $operation
+     */
+    public function throughRaw(callable $operation): static {
+        $this->steps->add(RawCall::with($operation));
         return $this;
     }
 
     /**
      * @param callable(mixed):bool $condition
-     * @param callable(mixed):mixed $callback
+     * @param callable(mixed):mixed $then
+     * @param callable(mixed):mixed $otherwise
      */
-    public function when(callable $condition, callable $callback): static {
-        $this->processors->add(ConditionalCall::withValue($condition)->then(Call::withValue($callback)));
+    public function when(
+        callable $condition,
+        callable $then,
+        ?callable $otherwise = null,
+    ): static {
+        $operator = ConditionalCall::withValue($condition)->then(Call::withValue($then));
+        if (!is_null($otherwise)) {
+            $operator = $operator->otherwise(Call::withValue($otherwise));
+        }
+        $this->steps->add($operator);
         return $this;
     }
 
     /**
-     * @param callable(mixed):void $callback
+     * @param callable(mixed):void $operation
      */
-    public function tap(callable $callback): static {
-        $this->processors->add(Tap::withValue($callback));
+    public function tap(callable $operation): static {
+        $this->steps->add(Tap::withValue($operation));
         return $this;
     }
 
     /**
-     * @param callable(ProcessingState):void $callback
+     * @param callable(ProcessingState):void $operation
      */
-    public function tapWithState(callable $callback): static {
-        $this->processors->add(Tap::withState($callback));
+    public function tapWithState(callable $operation): static {
+        $this->steps->add(Tap::withState($operation));
         return $this;
     }
 
     /**
      * Add transformation processor
      */
-    public function map(callable $fn): static {
-        return $this->through($fn);
+    public function map(callable $operation): static {
+        return $this->through($operation);
     }
 
     public function filter(callable $condition, string $message = 'Value filter condition failed'): static {
-        return $this->throughProcessor(ConditionalCall::withValue($condition)->negate()->then(Fail::with($message)));
+        return $this->throughOperator(ConditionalCall::withValue($condition)->negate()->then(Fail::with($message)));
     }
 
     public function filterWithState(callable $condition, string $message = 'State filter condition failed'): static {
-        return $this->throughProcessor(ConditionalCall::withState($condition)->negate()->then(Fail::with($message)));
-    }
-
-    /**
-     * @param CanFinalizeProcessing|callable(ProcessingState):mixed $finalizer
-     */
-    public function finally(callable|CanFinalizeProcessing $finalizer): static {
-        $this->finalizer = match (true) {
-            $finalizer instanceof CanFinalizeProcessing => $finalizer,
-            is_callable($finalizer) => Finalize::withState($finalizer),
-            default => throw new InvalidArgumentException('Finalizer must be callable or implement CanFinalizeProcessing'),
-        };
-        return $this;
+        return $this->throughOperator(ConditionalCall::withState($condition)->negate()->then(Fail::with($message)));
     }
 
     // EXECUTION //////////////////////////////////////////////////////////////////////////////
 
-    public function create(): PendingExecution {
-        $pipeline = new Pipeline(
-            $this->processors,
-            $this->finalizer,
-            $this->middleware,
-            $this->hooks,
-        );
-        return new PendingExecution(
-            ProcessingState::with(($this->source)(), $this->tags),
-            $pipeline,
+    /**
+     * @param callable|CanProcessState(ProcessingState):mixed $operation
+     */
+    public function finally(callable|CanProcessState $operation): static {
+        $operation = match (true) {
+            $operation instanceof CanProcessState => $operation,
+            is_callable($operation) => Call::withState($operation),
+            default => throw new InvalidArgumentException('Finalizer must be callable or implement CanFinalizeProcessing'),
+        };
+        $this->finalizers->add($operation);
+        return $this;
+    }
+
+    public function create(): Pipeline {
+        return new Pipeline(
+            steps: $this->steps,
+            middleware: $this->middleware,
+            hooks: $this->hooks,
+            finalizers: $this->finalizers,
         );
     }
 }

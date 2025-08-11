@@ -1,8 +1,8 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Pipeline\Middleware\Observation;
+namespace Cognesy\Pipeline\Operators\Observation;
 
-use Cognesy\Pipeline\Contracts\CanControlStateProcessing;
+use Cognesy\Pipeline\Contracts\CanProcessState;
 use Cognesy\Pipeline\ProcessingState;
 use Cognesy\Pipeline\Tag\Observation\StepTimingTag;
 
@@ -12,7 +12,7 @@ use Cognesy\Pipeline\Tag\Observation\StepTimingTag;
  * Fast, lightweight, no logic - just data collection.
  * Consumer components handle step SLA monitoring, performance analysis, etc.
  */
-readonly class StepTiming implements CanControlStateProcessing
+readonly class StepTiming implements CanProcessState
 {
     public function __construct(
         private string $stepName,
@@ -25,10 +25,10 @@ readonly class StepTiming implements CanControlStateProcessing
         return new self($stepName);
     }
 
-    public function handle(ProcessingState $state, callable $next): ProcessingState {
+    public function process(ProcessingState $state, ?callable $next = null): ProcessingState {
         $startTime = microtime(true);
 
-        $output = $next($state);
+        $output = $next ? $next($state) : $state;
 
         $endTime = microtime(true);
         $duration = $endTime - $startTime;
