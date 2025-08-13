@@ -2,7 +2,9 @@
 
 namespace Cognesy\Pipeline;
 
+use Cognesy\Pipeline\Contracts\CanCarryState;
 use Cognesy\Pipeline\Contracts\CanProcessState;
+use Cognesy\Pipeline\Enums\ErrorStrategy;
 use Cognesy\Pipeline\Enums\NullStrategy;
 use Cognesy\Pipeline\Internal\OperatorStack;
 use Cognesy\Pipeline\Operators\Call;
@@ -23,15 +25,16 @@ class PipelineBuilder
     private OperatorStack $middleware; // per-pipeline execution middleware stack
     private OperatorStack $hooks; // per-processor execution hooks
     private OperatorStack $finalizers;
+    private ErrorStrategy $onError;
 
-    /**
-     * @param ?callable():mixed $source
-     */
-    public function __construct() {
+    public function __construct(
+        ErrorStrategy $onError = ErrorStrategy::ContinueWithFailure
+    ) {
         $this->steps = new OperatorStack();
         $this->middleware = new OperatorStack();
         $this->hooks = new OperatorStack();
         $this->finalizers = new OperatorStack();
+        $this->onError = $onError;
     }
 
     // MIDDLEWARE SUPPORT /////////////////////////////////////////////////////////////////////
@@ -60,7 +63,7 @@ class PipelineBuilder
     /**
      * Add a hook to execute before each processor.
      *
-     * @param callable(ProcessingState):mixed $operation
+     * @param callable(CanCarryState):mixed $operation
      */
     public function beforeEach(callable $operation): static {
         $this->hooks->add(CallBefore::with($operation));
@@ -70,7 +73,7 @@ class PipelineBuilder
     /**
      * Add a hook to execute after each processor.
      *
-     * @param callable(ProcessingState):mixed $operation
+     * @param callable(CanCarryState):mixed $operation
      */
     public function afterEach(callable $operation): static {
         $this->hooks->add(CallAfter::with($operation));
@@ -95,7 +98,7 @@ class PipelineBuilder
     /**
      * Add a condition to check if processing should finish early.
      *
-     * @param callable(ProcessingState):bool $condition
+     * @param callable(CanCarryState):bool $condition
      */
     public function finishWhen(callable $condition): static {
         $this->hooks->add(Skip::when($condition));
@@ -105,7 +108,7 @@ class PipelineBuilder
     /**
      * Add a failure handler executed when any step fails.
      *
-     * @param callable(ProcessingState):void $operation
+     * @param callable(CanCarryState):void $operation
      */
     public function onFailure(callable $operation): static {
         $this->hooks->add(TapOnFailure::with($operation));
@@ -115,7 +118,7 @@ class PipelineBuilder
     /**
      * Fail the pipeline when a condition is met.
      *
-     * @param callable(ProcessingState):bool $condition
+     * @param callable(CanCarryState):bool $condition
      */
     public function failWhen(callable $condition, string $message = 'Condition failed'): static {
         $this->hooks->add(FailWhen::with($condition, $message));
@@ -150,7 +153,7 @@ class PipelineBuilder
     /**
      * Raw call for fast execution - no normalization, null processing, or error handling.
      *
-     * @param callable(ProcessingState, ?callable):ProcessingState $operation
+     * @param callable(CanCarryState, ?callable):CanCarryState $operation
      */
     public function throughRaw(callable $operation): static {
         $this->steps->add(RawCall::with($operation));
@@ -184,7 +187,7 @@ class PipelineBuilder
     }
 
     /**
-     * @param callable(ProcessingState):void $operation
+     * @param callable(CanCarryState):void $operation
      */
     public function tapWithState(callable $operation): static {
         $this->steps->add(Tap::withState($operation));
@@ -209,7 +212,7 @@ class PipelineBuilder
     // EXECUTION //////////////////////////////////////////////////////////////////////////////
 
     /**
-     * @param callable|CanProcessState(ProcessingState):mixed $operation
+     * @param callable|CanProcessState(CanCarryState):mixed $operation
      */
     public function finally(callable|CanProcessState $operation): static {
         $operation = match (true) {
@@ -227,6 +230,11 @@ class PipelineBuilder
             middleware: $this->middleware,
             hooks: $this->hooks,
             finalizers: $this->finalizers,
+            onError: $this->onError,
         );
+    }
+
+    public function executeWith(CanCarryState $state): PendingExecution {
+        return $this->create()->executeWith($state);
     }
 }
