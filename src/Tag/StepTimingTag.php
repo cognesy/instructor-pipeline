@@ -1,30 +1,22 @@
 <?php declare(strict_types=1);
 
-namespace Cognesy\Pipeline\Tag\Observation;
+namespace Cognesy\Pipeline\Tag;
 
-use Cognesy\Pipeline\Contracts\TagInterface;
+use Cognesy\Utils\TagMap\Contracts\TagInterface;
 
 /**
- * Pure timing tag - captures essential timing data only.
- * 
- * No memory tracking, no complex logic - just clean timing information.
- * Dedicated consumer components handle SLA monitoring, alerts, etc.
+ * Pure step-level timing tag for granular performance measurement.
  *
- * Example usage:
- * ```php
- * $timings = $state->allTags(TimingTag::class);
- * foreach ($timings as $timing) {
- *     echo "{$timing->operationName}: {$timing->durationMs()}ms\n";
- * }
- * ```
+ * Captures timing data for individual pipeline steps without any
+ * additional logic. Consumer components handle analysis and actions.
  */
-readonly class TimingTag implements TagInterface
+readonly class StepTimingTag implements TagInterface
 {
     public function __construct(
+        public string $stepName,
         public float $startTime,
         public float $endTime,
         public float $duration,
-        public ?string $operationName = null,
         public bool $success = true,
     ) {}
 
@@ -69,15 +61,6 @@ readonly class TimingTag implements TagInterface
     }
 
     /**
-     * Get end time as DateTime object.
-     */
-    public function endDateTime(): \DateTimeImmutable {
-        $timestamp = sprintf('%.6F', $this->endTime);
-        return \DateTimeImmutable::createFromFormat('U.u', $timestamp)
-            ?: \DateTimeImmutable::createFromFormat('U', (string)(int)$this->endTime);
-    }
-
-    /**
      * Check if this timing represents a successful operation.
      */
     public function isSuccess(): bool {
@@ -96,7 +79,7 @@ readonly class TimingTag implements TagInterface
      */
     public function toArray(): array {
         return [
-            'operation_name' => $this->operationName,
+            'step_name' => $this->stepName,
             'start_time' => $this->startTime,
             'end_time' => $this->endTime,
             'duration_seconds' => $this->duration,
