@@ -15,6 +15,8 @@ use IteratorAggregate;
  * The middleware stack implements the classic middleware pattern where each
  * middleware can decide whether to continue processing and can modify the
  * state before and after the next middleware executes.
+ *
+ * @implements \IteratorAggregate<int, CanProcessState>
  */
 final class OperatorStack implements Countable, IteratorAggregate
 {
@@ -35,6 +37,7 @@ final class OperatorStack implements Countable, IteratorAggregate
         return empty($this->operators);
     }
 
+    #[\Override]
     public function count(): int {
         return count($this->operators);
     }
@@ -60,6 +63,7 @@ final class OperatorStack implements Countable, IteratorAggregate
     /**
      * @return Iterator<CanProcessState>
      */
+    #[\Override]
     public function getIterator(): Iterator {
         return new ArrayIterator($this->operators);
     }
@@ -68,10 +72,11 @@ final class OperatorStack implements Countable, IteratorAggregate
      * Builds the middleware stack by wrapping each operator in a closure that
      * calls the next operator in the stack.
      *
-     * @param ?callable(CanCarryState):CanCarryState $next Final processor to execute after all middleware
+     * @param callable(CanCarryState):CanCarryState $next Final processor to execute after all middleware
+     * @return callable(CanCarryState):CanCarryState
      */
     public function callStack(callable $next): callable {
-        $stack = $next ?? fn(CanCarryState $s) => $s;
+        $stack = $next;
         // Build stack from last to first middleware
         for ($i = count($this->operators) - 1; $i >= 0; $i--) {
             $operator = $this->operators[$i];

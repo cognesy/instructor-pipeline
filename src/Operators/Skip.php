@@ -22,9 +22,11 @@ readonly final class Skip implements CanProcessState {
      * @param callable(CanCarryState):bool $condition
      */
     public static function when(callable $condition): self {
+        /** @psalm-suppress InvalidArgument - Condition returns bool but is wrapped to work with state pipeline */
         return new self(ConditionalCall::withState($condition)->then(Call::withNoArgs(fn() => true)));
     }
 
+    #[\Override]
     public function process(CanCarryState $state, ?callable $next = null): CanCarryState {
         $tempState = $this->conditionChecker->process($state, fn($s) => $s);
         return match(true) {

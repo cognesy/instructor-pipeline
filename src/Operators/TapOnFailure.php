@@ -25,12 +25,14 @@ readonly final class TapOnFailure implements CanProcessState
      * @param callable(CanCarryState):void $callback
      */
     public static function with(callable $callback): self {
+        /** @psalm-suppress InvalidArgument - Callback returns void for side effects, wrapped to work with state pipeline */
         return new self(Call::withState($callback));
     }
 
     /**
      * @param callable(CanCarryState):CanCarryState $next
      */
+    #[\Override]
     public function process(CanCarryState $state, ?callable $next = null): CanCarryState {
         $newState = $next ? $next($state) : $state;
         if (!$newState->isFailure()) {

@@ -11,8 +11,12 @@ use Cognesy\Pipeline\StateContracts\CanCarryState;
  */
 readonly final class RawCall implements CanProcessState
 {
+    /** @var \Closure(CanCarryState, ?callable):CanCarryState */
     private \Closure $closure;
 
+    /**
+     * @param \Closure(CanCarryState, ?callable):CanCarryState $closure
+     */
     private function __construct(\Closure $closure) {
         $this->closure = $closure;
     }
@@ -26,6 +30,7 @@ readonly final class RawCall implements CanProcessState
         return new self($closure(...));
     }
 
+    #[\Override]
     public function process(CanCarryState $state, ?callable $next = null): CanCarryState {
         return ($this->closure)($state, $next);
     }

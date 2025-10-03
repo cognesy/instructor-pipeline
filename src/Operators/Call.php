@@ -14,6 +14,7 @@ use Cognesy\Utils\TagMap\Tags\ErrorTag;
 use RuntimeException;
 
 readonly final class Call implements CanProcessState {
+    /** @var Closure(CanCarryState):mixed */
     private Closure $normalizedCall;
     private NullStrategy $onNull;
 
@@ -31,6 +32,9 @@ readonly final class Call implements CanProcessState {
 
     /**
      * @param callable(mixed):mixed $callable
+     */
+    /**
+     * @param callable():mixed $callable
      */
     public static function withNoArgs(callable $callable) : self {
         return new self(function (CanCarryState $state) use ($callable) {
@@ -78,6 +82,7 @@ readonly final class Call implements CanProcessState {
     /**
      * @param null|callable(CanCarryState):CanCarryState $next
      */
+    #[\Override]
     public function process(CanCarryState $state, ?callable $next = null): CanCarryState {
         $outputState = ($this->normalizedCall)($state);
 

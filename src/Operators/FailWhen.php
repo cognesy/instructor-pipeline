@@ -14,6 +14,9 @@ use Cognesy\Pipeline\StateContracts\CanCarryState;
  */
 readonly final class FailWhen implements CanProcessState
 {
+    /**
+     * @param Closure(CanCarryState):bool $condition
+     */
     public function __construct(
         private Closure $condition,
         private string $message,
@@ -26,6 +29,7 @@ readonly final class FailWhen implements CanProcessState
         return new self($condition, $message);
     }
 
+    #[\Override]
     public function process(CanCarryState $state, ?callable $next = null): CanCarryState {
         if (($this->condition)($state)) {
             return $state->failWith($this->message);
