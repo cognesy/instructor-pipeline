@@ -1,3 +1,9 @@
+---
+title: Pipeline
+description: Data processing pipelines — builder, error strategies, processors, and pipe composition
+package: pipeline
+---
+
 # Pipeline Cheatsheet
 
 ## Core Types
@@ -5,21 +11,23 @@
 ### `Pipeline`
 
 ```php
-Pipeline::builder(ErrorStrategy::ContinueWithFailure)
-Pipeline::builder(ErrorStrategy::FailFast)
+Pipeline::builder(ErrorStrategy $onError = ErrorStrategy::ContinueWithFailure): PipelineBuilder
+
+->executeWith(CanCarryState $state): PendingExecution
+->process(CanCarryState $state): CanCarryState
 ```
 
 ### `PipelineBuilder`
 
 ```php
-->through(callable $step)
-->throughAll(callable ...$steps)
-->map(callable $step)
+->through(callable $operation)
+->throughAll(callable ...$operations)
+->map(callable $operation)
 ->when(callable $condition, callable $then, ?callable $otherwise = null)
-->tap(callable $callback)
+->tap(callable $operation)
 ->filter(callable $condition, string $message = 'Value filter condition failed')
-->onFailure(callable $callback)
-->finally(callable $callback)
+->onFailure(callable $operation)
+->finally(callable $operation)
 ->create(): Pipeline
 ->executeWith(CanCarryState $state): PendingExecution
 ```
@@ -82,7 +90,7 @@ TransformState::with(CanCarryState $state)
 ->tags(): TagQuery
 ->hasTag(string $tagClass): bool
 ->allTags(): array
-->recover(mixed $default): CanCarryState
+->recover(mixed $defaultValue): CanCarryState
 ->recoverWith(callable $recovery): CanCarryState
 ->when(callable $conditionFn, callable $transformationFn): self
 ->whenState(callable $stateConditionFn, callable $stateTransformationFn): self
